@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import mimetypes
 
-# Required libraries (install with pip)
 import fitz  # PyMuPDF
 from docx import Document
 from bs4 import BeautifulSoup
@@ -40,6 +39,7 @@ class DocumentProcessor:
         
     def validate_file(self, file_path: Path) -> Tuple[bool, str]:
         """Validate file before processing"""
+        print(f"Validating file", {file_path})
         try:
             # Check if file exists
             if not file_path.exists():
@@ -65,6 +65,7 @@ class DocumentProcessor:
     
     def detect_encoding(self, file_path: Path) -> str:
         """Detect file encoding for text files"""
+        print(f"detecting encoding for file", {file_path})
         try:
             with open(file_path, 'rb') as f:
                 raw_data = f.read(10000)  # Sample first 10KB
@@ -83,35 +84,53 @@ class DocumentProcessor:
             return 'utf-8'
     
     def extract_pdf_content(self, file_path: Path) -> Tuple[str, Dict]:
-        """Extract content from PDF files"""
+        """Extract content from PDF files with multiple fallback modes"""
         try:
             doc = fitz.open(file_path)
             content = ""
             metadata = {
                 'page_count': len(doc),
-                'title': doc.metadata.get('title', ''),
-                'author': doc.metadata.get('author', ''),
-                'subject': doc.metadata.get('subject', ''),
-                'creator': doc.metadata.get('creator', ''),
-                'creation_date': doc.metadata.get('creationDate', ''),
-                'modification_date': doc.metadata.get('modDate', '')
+                **doc.metadata
             }
-            
+
             for page_num in range(len(doc)):
                 page = doc[page_num]
-                page_text = page.get_text()
-                if page_text.strip():  # Only add non-empty pages
-                    content += f"\n\n--- Page {page_num + 1} ---\n"
-                    content += page_text
-            
+
+                # Try standard text extraction
+                page_text = page.get_text("text") or ""
+
+                # Fallback: blocks
+                if not page_text.strip():
+                    blocks = page.get_text("blocks") or []
+                    block_texts = []
+                    for b in blocks:
+                        if isinstance(b, (list, tuple)) and len(b) > 4:
+                            block_texts.append(b[4])
+                    page_text = "\n".join(block_texts)
+
+                # Fallback: dict mode
+                if not page_text.strip():
+                    text_dict = page.get_text("dict") or {}
+                    block_texts = []
+                    for block in text_dict.get("blocks", []):
+                        for line in block.get("lines", []):
+                            for span in line.get("spans", []):
+                                block_texts.append(span.get("text", ""))
+                    page_text = "\n".join(block_texts)
+
+                if page_text.strip():
+                    content += f"\n\n--- Page {page_num + 1} ---\n{page_text}"
+
             doc.close()
             return content.strip(), metadata
-            
+
         except Exception as e:
             raise Exception(f"PDF extraction failed: {str(e)}")
+
     
     def extract_docx_content(self, file_path: Path) -> Tuple[str, Dict]:
         """Extract content from DOCX files"""
+        print(f"Extracting content from file", {file_path})
         try:
             doc = Document(file_path)
             content = ""
@@ -149,6 +168,7 @@ class DocumentProcessor:
     
     def extract_text_content(self, file_path: Path) -> Tuple[str, Dict]:
         """Extract content from plain text files"""
+        print(f"Extracting content from file", {file_path})
         try:
             encoding = self.detect_encoding(file_path)
             
@@ -169,6 +189,7 @@ class DocumentProcessor:
     
     def extract_html_content(self, file_path: Path) -> Tuple[str, Dict]:
         """Extract content from HTML files"""
+        print(f"Extracting content from file", {file_path})
         try:
             encoding = self.detect_encoding(file_path)
             
@@ -203,6 +224,7 @@ class DocumentProcessor:
     
     def clean_text(self, text: str) -> str:
         """Clean and normalize extracted text"""
+        print("Cleaning and normalizing extracted data..")
         if not text:
             return ""
         
@@ -243,6 +265,7 @@ class DocumentProcessor:
     
     def process_document(self, file_path: str) -> ProcessedDocument:
         """Main method to process a single document"""
+        print(f"Processing document: ", {file_path})
         start_time = datetime.now()
         file_path = Path(file_path)
         errors = []
@@ -257,7 +280,7 @@ class DocumentProcessor:
             
             # Extract content based on file type
             raw_content, file_metadata = self.extract_content_by_type(file_path)
-            
+
             # Clean the extracted text
             cleaned_content = self.clean_text(raw_content)
             
@@ -440,11 +463,11 @@ def main():
     # Example: Process a single file
     try:
         # Replace with your actual file path
-        file_path = "example_document.pdf"
+        file_path = Path(r"C:\Users\dv146ms\Downloads\Invoice_000001.pdf").resolve()
+
         
         if Path(file_path).exists():
             processed_doc = processor.process_document(file_path)
-            
             if processed_doc.content:
                 print(f"Successfully processed: {processed_doc.source_file}")
                 print(f"Content length: {len(processed_doc.content)} characters")
