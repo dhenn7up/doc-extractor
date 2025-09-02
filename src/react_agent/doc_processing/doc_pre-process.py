@@ -479,8 +479,9 @@ def main():
                 enhanced_content = cleaner.normalize_spacing(enhanced_content)
                 enhanced_content = cleaner.fix_hyphenation(enhanced_content)
                 
-                structure_info = cleaner.extract_structure(enhanced_content)
-                print(f"Document structure: {structure_info}")
+                #structure_info = cleaner.extract_structure(enhanced_content)
+                #print(f"Document structure: {structure_info}")
+                print (enhanced_content)
                 
             else:
                 print(f"Failed to process: {processed_doc.errors}")
