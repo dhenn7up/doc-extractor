@@ -2,7 +2,7 @@ import os
 import re
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
 import mimetypes
@@ -12,6 +12,7 @@ from docx import Document
 from bs4 import BeautifulSoup
 import chardet
 import magic
+from azure.core.exceptions import AzureError  # Add this import
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -222,68 +223,68 @@ class DocumentProcessor:
         except Exception as e:
             raise Exception(f"HTML extraction failed: {str(e)}")
         
-    # def extract_with_azure(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
-    #     """
-    #     Extract content using Azure Document Intelligence API.
+    def extract_with_azure(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
+        """
+        Extract content using Azure Document Intelligence API.
         
-    #     Args:
-    #         file_path: Path to the document file
+        Args:
+            file_path: Path to the document file
             
-    #     Returns:
-    #         Tuple of (extracted_text, metadata)
-    #     """
-    #     if not self.azure_client:
-    #         raise ValueError("Azure Document Intelligence client not initialized")
+        Returns:
+            Tuple of (extracted_text, metadata)
+        """
+        if not self.azure_client:
+            raise ValueError("Azure Document Intelligence client not initialized")
         
-    #     try:
-    #         with open(file_path, "rb") as file:
-    #             # Use the general document model for broad compatibility
-    #             poller = self.azure_client.begin_analyze_document(
-    #                 model_id="prebuilt-document",
-    #                 analyze_request=file,
-    #                 content_type="application/octet-stream"
-    #             )
+        try:
+            with open(file_path, "rb") as file:
+                # Use the general document model for broad compatibility
+                poller = self.azure_client.begin_analyze_document(
+                    model_id="prebuilt-document",
+                    analyze_request=file,
+                    content_type="application/octet-stream"
+                )
                 
-    #             result = poller.result()
+                result = poller.result()
                 
-    #             # Extract text content
-    #             content_parts = []
-    #             if result.content:
-    #                 content_parts.append(result.content)
+                # Extract text content
+                content_parts = []
+                if result.content:
+                    content_parts.append(result.content)
                 
-    #             # Extract text from paragraphs if available
-    #             if result.paragraphs:
-    #                 for paragraph in result.paragraphs:
-    #                     if paragraph.content and paragraph.content not in content_parts:
-    #                         content_parts.append(paragraph.content)
+                # Extract text from paragraphs if available
+                if result.paragraphs:
+                    for paragraph in result.paragraphs:
+                        if paragraph.content and paragraph.content not in content_parts:
+                            content_parts.append(paragraph.content)
                 
-    #             extracted_text = "\n".join(content_parts)
+                extracted_text = "\n".join(content_parts)
                 
-    #             # Prepare metadata
-    #             metadata = {
-    #                 'extraction_method': 'azure_document_intelligence',
-    #                 'azure_model': 'prebuilt-document',
-    #                 'pages_processed': len(result.pages) if result.pages else 0,
-    #                 'paragraphs_found': len(result.paragraphs) if result.paragraphs else 0,
-    #                 'tables_found': len(result.tables) if result.tables else 0
-    #             }
+                # Prepare metadata
+                metadata = {
+                    'extraction_method': 'azure_document_intelligence',
+                    'azure_model': 'prebuilt-document',
+                    'pages_processed': len(result.pages) if result.pages else 0,
+                    'paragraphs_found': len(result.paragraphs) if result.paragraphs else 0,
+                    'tables_found': len(result.tables) if result.tables else 0
+                }
                 
-    #             # Add confidence scores if available
-    #             if result.paragraphs and result.paragraphs[0].spans:
-    #                 confidences = [p.spans[0].confidence for p in result.paragraphs 
-    #                              if p.spans and p.spans[0].confidence is not None]
-    #                 if confidences:
-    #                     metadata['average_confidence'] = sum(confidences) / len(confidences)
+                # Add confidence scores if available
+                if result.paragraphs and result.paragraphs[0].spans:
+                    confidences = [p.spans[0].confidence for p in result.paragraphs 
+                                 if p.spans and p.spans[0].confidence is not None]
+                    if confidences:
+                        metadata['average_confidence'] = sum(confidences) / len(confidences)
                 
-    #             logger.info(f"Azure extraction successful: {len(extracted_text)} characters extracted")
-    #             return extracted_text, metadata
+                logger.info(f"Azure extraction successful: {len(extracted_text)} characters extracted")
+                return extracted_text, metadata
                 
-    #     except AzureError as e:
-    #         logger.error(f"Azure Document Intelligence API error: {e}")
-    #         raise
-    #     except Exception as e:
-    #         logger.error(f"Unexpected error during Azure extraction: {e}")
-    #         raise
+        except AzureError as e:
+            logger.error(f"Azure Document Intelligence API error: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during Azure extraction: {e}")
+            raise
     
     def clean_text(self, text: str) -> str:
         """Clean and normalize extracted text"""

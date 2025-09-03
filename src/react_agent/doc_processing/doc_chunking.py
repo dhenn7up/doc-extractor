@@ -8,6 +8,7 @@ from enum import Enum
 import asyncio
 import logging
 from pathlib import Path
+from react_agent.utils import load_chat_model
 
 from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
@@ -282,13 +283,7 @@ class AIPoweredChunker(BaseChunker):
     
     def _init_azure_openai(self):
         """Initialize Azure OpenAI client."""
-        return init_chat_model(
-            model_provider="azure_openai",
-            model=self.model,
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_key=os.getenv("AZURE_OPENAI_API_KEY")
-        )
+        return load_chat_model("azure_openai/gpt-4o")
     
     async def chunk_text_async(self, text: str, document_id: str = "unknown") -> List[TextChunk]:
         """Asynchronously split text using AI analysis."""
@@ -457,7 +452,7 @@ class ChunkingManager:
             return ChunkingStrategy.SEMANTIC
 
 
-# # Example usage and testing
+# Example usage and testing
 # async def main():
 #     """Example usage of the chunking system."""
 #     manager = ChunkingManager()
@@ -482,27 +477,8 @@ class ChunkingManager:
 #     healthcare, finance, transportation, and entertainment.
 #     """
     
-#     chunks = manager.chunk_text(sample_text, ChunkingStrategy.SEMANTIC, "sample_doc")
-#     print(chunks)
-
-#     # # Test different chunking strategies
-#     # strategies = [
-#     #     ChunkingStrategy.FIXED_SIZE,
-#     #     ChunkingStrategy.SEMANTIC,
-#     #     ChunkingStrategy.MARKDOWN,
-#     # ]
-    
-#     # for strategy in strategies:
-#     #     print(f"\n--- {strategy.value.upper()} CHUNKING ---")
-#     #     chunks = manager.chunk_text(sample_text, strategy, "sample_doc")
-        
-#     #     for chunk in chunks:
-#     #         print(f"Chunk {chunk.metadata.chunk_index + 1}:")
-#     #         print(f"  Content: {chunk.content[:100]}...")
-#     #         print(f"  Tokens: {chunk.metadata.token_count}")
-#     #         print(f"  Characters: {chunk.metadata.character_count}")
-#     #         print()
-
+#     chunks = manager.chunk_text(sample_text, ChunkingStrategy.AI_POWERED, "sample_doc")
+#     print(chunks
 
 
 # if __name__ == "__main__":
