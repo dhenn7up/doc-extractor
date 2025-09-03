@@ -221,6 +221,69 @@ class DocumentProcessor:
             
         except Exception as e:
             raise Exception(f"HTML extraction failed: {str(e)}")
+        
+    # def extract_with_azure(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
+    #     """
+    #     Extract content using Azure Document Intelligence API.
+        
+    #     Args:
+    #         file_path: Path to the document file
+            
+    #     Returns:
+    #         Tuple of (extracted_text, metadata)
+    #     """
+    #     if not self.azure_client:
+    #         raise ValueError("Azure Document Intelligence client not initialized")
+        
+    #     try:
+    #         with open(file_path, "rb") as file:
+    #             # Use the general document model for broad compatibility
+    #             poller = self.azure_client.begin_analyze_document(
+    #                 model_id="prebuilt-document",
+    #                 analyze_request=file,
+    #                 content_type="application/octet-stream"
+    #             )
+                
+    #             result = poller.result()
+                
+    #             # Extract text content
+    #             content_parts = []
+    #             if result.content:
+    #                 content_parts.append(result.content)
+                
+    #             # Extract text from paragraphs if available
+    #             if result.paragraphs:
+    #                 for paragraph in result.paragraphs:
+    #                     if paragraph.content and paragraph.content not in content_parts:
+    #                         content_parts.append(paragraph.content)
+                
+    #             extracted_text = "\n".join(content_parts)
+                
+    #             # Prepare metadata
+    #             metadata = {
+    #                 'extraction_method': 'azure_document_intelligence',
+    #                 'azure_model': 'prebuilt-document',
+    #                 'pages_processed': len(result.pages) if result.pages else 0,
+    #                 'paragraphs_found': len(result.paragraphs) if result.paragraphs else 0,
+    #                 'tables_found': len(result.tables) if result.tables else 0
+    #             }
+                
+    #             # Add confidence scores if available
+    #             if result.paragraphs and result.paragraphs[0].spans:
+    #                 confidences = [p.spans[0].confidence for p in result.paragraphs 
+    #                              if p.spans and p.spans[0].confidence is not None]
+    #                 if confidences:
+    #                     metadata['average_confidence'] = sum(confidences) / len(confidences)
+                
+    #             logger.info(f"Azure extraction successful: {len(extracted_text)} characters extracted")
+    #             return extracted_text, metadata
+                
+    #     except AzureError as e:
+    #         logger.error(f"Azure Document Intelligence API error: {e}")
+    #         raise
+    #     except Exception as e:
+    #         logger.error(f"Unexpected error during Azure extraction: {e}")
+    #         raise
     
     def clean_text(self, text: str) -> str:
         """Clean and normalize extracted text"""
@@ -453,46 +516,46 @@ class TextCleaner:
         }
 
 # Example usage and testing
-def main():
-    """Example usage of the document processor"""
+# def main():
+#     """Example usage of the document processor"""
     
-    # Initialize processor
-    processor = DocumentProcessor()
-    cleaner = TextCleaner()
+#     # Initialize processor
+#     processor = DocumentProcessor()
+#     cleaner = TextCleaner()
     
-    # Example: Process a single file
-    try:
-        # Replace with your actual file path
-        file_path = Path(r"C:\Users\dv146ms\Downloads\Invoice_000001.pdf").resolve()
+#     # Example: Process a single file
+#     try:
+#         # Replace with your actual file path
+#         file_path = Path(r"C:\Users\dv146ms\Downloads\Invoice_000001.pdf").resolve()
 
         
-        if Path(file_path).exists():
-            processed_doc = processor.process_document(file_path)
-            if processed_doc.content:
-                print(f"Successfully processed: {processed_doc.source_file}")
-                print(f"Content length: {len(processed_doc.content)} characters")
-                print(f"Processing time: {processed_doc.processing_time:.2f} seconds")
-                print(f"Metadata: {processed_doc.metadata}")
+#         if Path(file_path).exists():
+#             processed_doc = processor.process_document(file_path)
+#             if processed_doc.content:
+#                 print(f"Successfully processed: {processed_doc.source_file}")
+#                 print(f"Content length: {len(processed_doc.content)} characters")
+#                 print(f"Processing time: {processed_doc.processing_time:.2f} seconds")
+#                 print(f"Metadata: {processed_doc.metadata}")
                 
-                # Apply advanced cleaning
-                enhanced_content = cleaner.remove_headers_footers(processed_doc.content)
-                enhanced_content = cleaner.normalize_spacing(enhanced_content)
-                enhanced_content = cleaner.fix_hyphenation(enhanced_content)
+#                 # Apply advanced cleaning
+#                 enhanced_content = cleaner.remove_headers_footers(processed_doc.content)
+#                 enhanced_content = cleaner.normalize_spacing(enhanced_content)
+#                 enhanced_content = cleaner.fix_hyphenation(enhanced_content)
                 
-                #structure_info = cleaner.extract_structure(enhanced_content)
-                #print(f"Document structure: {structure_info}")
-                print (enhanced_content)
+#                 #structure_info = cleaner.extract_structure(enhanced_content)
+#                 #print(f"Document structure: {structure_info}")
+#                 print (enhanced_content)
                 
-            else:
-                print(f"Failed to process: {processed_doc.errors}")
+#             else:
+#                 print(f"Failed to process: {processed_doc.errors}")
         
-        # Example: Process a directory
-        # processed_docs = processor.process_directory("./documents", recursive=True)
-        # stats = processor.get_processing_stats(processed_docs)
-        # print(f"Processing statistics: {stats}")
+#         # Example: Process a directory
+#         # processed_docs = processor.process_directory("./documents", recursive=True)
+#         # stats = processor.get_processing_stats(processed_docs)
+#         # print(f"Processing statistics: {stats}")
         
-    except Exception as e:
-        logger.error(f"Processing error: {e}")
+#     except Exception as e:
+#         logger.error(f"Processing error: {e}")
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

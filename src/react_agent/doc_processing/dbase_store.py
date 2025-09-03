@@ -291,7 +291,7 @@ class VectorDatabase:
                             insert_sql,
                             record.id,
                             record.content,
-                            record.embedding,
+                            json.dumps(record.embedding),
                             json.dumps(record.metadata),
                             record.source,
                             record.chunk_index,
@@ -483,62 +483,62 @@ class VectorDatabase:
             }
 
 
-# Example usage and utility functions
-async def main():
-    """Example usage of the VectorDatabase class."""
-    # Configuration
-    config = DatabaseConfig()
+# # Example usage and utility functions
+# async def main():
+#     """Example usage of the VectorDatabase class."""
+#     # Configuration
+#     config = DatabaseConfig()
     
-    # Initialize database
-    db = VectorDatabase(config)
+#     # Initialize database
+#     db = VectorDatabase(config)
     
-    try:
-        await db.initialize()
+#     try:
+#         await db.initialize()
         
-        # Health check
-        health = await db.health_check()
-        print(f"Database health: {health}")
+#         # Health check
+#         health = await db.health_check()
+#         print(f"Database health: {health}")
         
-        # Create sample records
-        sample_records = [
-            VectorRecord(
-                content="This is a sample document about machine learning.",
-                embedding=[0.1] * 1536,  # Mock embedding
-                metadata={'topic': 'AI', 'category': 'technology'},
-                source="sample.txt",
-                chunk_index=0
-            ),
-            VectorRecord(
-                content="Another document about natural language processing.",
-                embedding=[0.2] * 1536,  # Mock embedding
-                metadata={'topic': 'NLP', 'category': 'technology'},
-                source="sample.txt",
-                chunk_index=1
-            )
-        ]
+#         # Create sample records
+#         sample_records = [
+#             VectorRecord(
+#                 content="This is a sample document about agentic ai.",
+#                 embedding=[0.1] * 1536,  # Mock embedding
+#                 metadata={'topic': 'AI', 'category': 'technology'},
+#                 source="sample.txt",
+#                 chunk_index=0
+#             ),
+#             VectorRecord(
+#                 content="Another document about lease process.",
+#                 embedding=[0.2] * 1536,  # Mock embedding
+#                 metadata={'topic': 'NLP', 'category': 'technology'},
+#                 source="sample.txt",
+#                 chunk_index=1
+#             )
+#         ]
         
-        # Insert records
-        stats = await db.insert_vectors(sample_records)
-        print(f"Insertion stats: {stats}")
+#         # Insert records
+#         stats = await db.insert_vectors(sample_records)
+#         print(f"Insertion stats: {stats}")
         
-        # Perform similarity search
-        query_embedding = [0.15] * 1536  # Mock query embedding
-        results = await db.similarity_search(query_embedding, limit=5, threshold=0.5)
-        print(f"Search results: {len(results)} documents found")
+#         # Perform similarity search
+#         query_embedding = [0.15] * 1536  # Mock query embedding
+#         results = await db.similarity_search(json.dumps(query_embedding), limit=5, threshold=0.5)
+#         print(f"Search results: {len(results)} documents found")
         
-        # Get database statistics
-        db_stats = await db.get_stats()
-        print(f"Database stats: {db_stats}")
+#         # Get database statistics
+#         db_stats = await db.get_stats()
+#         print(f"Database stats: {db_stats}")
         
-        # Optimize database
-        await db.optimize_database()
+#         # Optimize database
+#         await db.optimize_database()
         
-    except Exception as e:
-        logger.error(f"Error in main: {e}")
+#     except Exception as e:
+#         logger.error(f"Error in main: {e}")
         
-    finally:
-        await db.close()
+#     finally:
+#         await db.close()
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())

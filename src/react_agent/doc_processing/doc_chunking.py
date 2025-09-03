@@ -457,53 +457,53 @@ class ChunkingManager:
             return ChunkingStrategy.SEMANTIC
 
 
-# Example usage and testing
-async def main():
-    """Example usage of the chunking system."""
-    manager = ChunkingManager()
+# # Example usage and testing
+# async def main():
+#     """Example usage of the chunking system."""
+#     manager = ChunkingManager()
     
-    sample_text = """
-    # Introduction to Machine Learning
+#     sample_text = """
+#     # Introduction to Machine Learning
     
-    Machine learning is a subset of artificial intelligence that focuses on algorithms
-    that can learn and make decisions from data without being explicitly programmed.
+#     Machine learning is a subset of artificial intelligence that focuses on algorithms
+#     that can learn and make decisions from data without being explicitly programmed.
     
-    ## Types of Machine Learning
+#     ## Types of Machine Learning
     
-    There are three main types of machine learning:
+#     There are three main types of machine learning:
     
-    1. Supervised Learning: Uses labeled data to train models
-    2. Unsupervised Learning: Finds patterns in unlabeled data  
-    3. Reinforcement Learning: Learns through interaction with an environment
+#     1. Supervised Learning: Uses labeled data to train models
+#     2. Unsupervised Learning: Finds patterns in unlabeled data  
+#     3. Reinforcement Learning: Learns through interaction with an environment
     
-    ## Applications
+#     ## Applications
     
-    Machine learning has numerous applications across various industries including
-    healthcare, finance, transportation, and entertainment.
-    """
+#     Machine learning has numerous applications across various industries including
+#     healthcare, finance, transportation, and entertainment.
+#     """
     
-    chunks = manager.chunk_text(sample_text, ChunkingStrategy.MARKDOWN, "sample_doc")
-    print(chunks)
+#     chunks = manager.chunk_text(sample_text, ChunkingStrategy.SEMANTIC, "sample_doc")
+#     print(chunks)
 
-    # # Test different chunking strategies
-    # strategies = [
-    #     ChunkingStrategy.FIXED_SIZE,
-    #     ChunkingStrategy.SEMANTIC,
-    #     ChunkingStrategy.MARKDOWN,
-    # ]
+#     # # Test different chunking strategies
+#     # strategies = [
+#     #     ChunkingStrategy.FIXED_SIZE,
+#     #     ChunkingStrategy.SEMANTIC,
+#     #     ChunkingStrategy.MARKDOWN,
+#     # ]
     
-    # for strategy in strategies:
-    #     print(f"\n--- {strategy.value.upper()} CHUNKING ---")
-    #     chunks = manager.chunk_text(sample_text, strategy, "sample_doc")
+#     # for strategy in strategies:
+#     #     print(f"\n--- {strategy.value.upper()} CHUNKING ---")
+#     #     chunks = manager.chunk_text(sample_text, strategy, "sample_doc")
         
-    #     for chunk in chunks:
-    #         print(f"Chunk {chunk.metadata.chunk_index + 1}:")
-    #         print(f"  Content: {chunk.content[:100]}...")
-    #         print(f"  Tokens: {chunk.metadata.token_count}")
-    #         print(f"  Characters: {chunk.metadata.character_count}")
-    #         print()
+#     #     for chunk in chunks:
+#     #         print(f"Chunk {chunk.metadata.chunk_index + 1}:")
+#     #         print(f"  Content: {chunk.content[:100]}...")
+#     #         print(f"  Tokens: {chunk.metadata.token_count}")
+#     #         print(f"  Characters: {chunk.metadata.character_count}")
+#     #         print()
 
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())
