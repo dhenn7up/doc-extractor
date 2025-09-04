@@ -145,7 +145,7 @@ async def process_document(file_path: str) -> dict:
             logger.warning(f"Error closing database: {e}")
 
 
-# For testing
-if __name__ == "__main__":
-    document_path=r"C:\Users\dv146ms\Downloads\Authority to Trade.docx"
-    asyncio.run(process_document(document_path))
+# # For testing
+# if __name__ == "__main__":
+#     document_path=r"C:\Users\dv146ms\Downloads\Authority to Trade.docx"
+#     asyncio.run(process_document(document_path))
