@@ -1,10 +1,12 @@
 """
 FastAPI Application for Document Retrieval from Vector Database
 """
-
+import json
 import asyncio
 import logging
 import traceback
+import base64
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -118,6 +120,32 @@ class SimpleSearchRequest(BaseModel):
 class DocumentProcessRequest(BaseModel):
     """Request model for document processing."""
     file_path: str = Field(..., description="Path to the document file to process")
+
+class BinaryFileUploadRequest(BaseModel):
+    """Request model for binary file upload."""
+    filename: str = Field(..., description="Original filename with extension")
+    file_data: str = Field(..., description="Base64 encoded binary file data")
+    content_type: Optional[str] = Field(None, description="MIME type of the file")
+    
+    @validator('filename')
+    def validate_filename(cls, v):
+        if not v.strip():
+            raise ValueError('Filename cannot be empty')
+        # Ensure filename has an extension
+        if '.' not in v:
+            raise ValueError('Filename must include file extension')
+        return v.strip()
+    
+    @validator('file_data')
+    def validate_file_data(cls, v):
+        if not v.strip():
+            raise ValueError('File data cannot be empty')
+        try:
+            # Validate base64 encoding
+            base64.b64decode(v)
+        except Exception:
+            raise ValueError('File data must be valid base64 encoded')
+        return v.strip()
 
 class SearchResponse(BaseModel):
     """Response model for search results."""
@@ -297,14 +325,99 @@ async def process_document_endpoint(
         logger.error(f"Document processing request failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start processing: {str(e)}")
 
-# Upload and process document endpoint
+# Upload and process document endpoint - Modified to accept binary data
 @app.post("/documents/upload", response_model=DocumentProcessResponse, tags=["Documents"])
 async def upload_and_process_document(
+    request: BinaryFileUploadRequest,
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Accept binary file data (base64 encoded), create a file in root directory and process it.
+    """
+    try:
+        # Decode the base64 file data
+        try:
+            file_content = base64.b64decode(request.file_data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 file data: {str(e)}")
+        
+        # Generate unique filename to avoid conflicts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        file_extension = Path(request.filename).suffix
+        safe_filename = f"{timestamp}_{unique_id}_{Path(request.filename).stem}{file_extension}"
+        
+        # Create file in root directory (current working directory)
+        file_path = Path.cwd() / safe_filename
+        
+        # Write binary content to file
+        try:
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to write file: {str(e)}")
+        
+        logger.info(f"Binary file created: {file_path} (original: {request.filename})")
+        logger.info(f"File size: {len(file_content)} bytes")
+        
+        # Add processing task to background
+        if background_tasks:
+            background_tasks.add_task(
+                process_document_async, 
+                str(file_path.absolute()),
+                request.filename,  # Pass original filename for reference
+                str(file_path)     # Pass created file path for cleanup
+            )
+            
+            return DocumentProcessResponse(
+                success=True,
+                message=f"File created and processing started: {request.filename}",
+                details={
+                    "original_filename": request.filename,
+                    "created_file_path": str(file_path.absolute()),
+                    "file_size_bytes": len(file_content),
+                    "status": "processing"
+                }
+            )
+        else:
+            # Process immediately (blocking)
+            try:
+                result = await process_document(str(file_path.absolute()))
+                
+                return DocumentProcessResponse(
+                    success=True,
+                    message=f"File created and processed successfully: {request.filename}",
+                    details={
+                        "original_filename": request.filename,
+                        "created_file_path": str(file_path.absolute()),
+                        "file_size_bytes": len(file_content),
+                        "processing_result": result,
+                        "status": "completed"
+                    }
+                )
+            except Exception as e:
+                # Clean up file if processing fails
+                try:
+                    file_path.unlink()
+                except:
+                    pass
+                raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Binary file upload failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+# Legacy multipart file upload endpoint (keeping for backward compatibility)
+@app.post("/documents/upload-multipart", response_model=DocumentProcessResponse, tags=["Documents"])
+async def upload_multipart_document(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None
 ):
     """
-    Upload a document file and process it into the vector database.
+    Legacy multipart file upload endpoint for backward compatibility.
     """
     try:
         # Create uploads directory if it doesn't exist
@@ -398,17 +511,39 @@ async def get_similar_documents(
         logger.error(f"Failed to find similar documents: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-# Background task for document processing
-async def process_document_async(file_path: str):
-    """Process document in background."""
+# Background task for document processing - Modified to handle cleanup
+async def process_document_async(file_path: str, original_filename: str = None, cleanup_path: str = None):
+    """Process document in background with optional cleanup."""
     try:
         logger.info(f"Background processing started for: {file_path}")
+        if original_filename:
+            logger.info(f"Original filename: {original_filename}")
+            
         result = await process_document(file_path)
+        
         logger.info(f"Background processing completed for: {file_path}")
         logger.info(f"Processing result: {result}")
+        
+        # Optional: Clean up the created file after processing
+        # Uncomment the lines below if you want to delete the file after processing
+        # if cleanup_path and Path(cleanup_path).exists():
+        #     try:
+        #         Path(cleanup_path).unlink()
+        #         logger.info(f"Cleaned up temporary file: {cleanup_path}")
+        #     except Exception as cleanup_error:
+        #         logger.warning(f"Failed to cleanup file {cleanup_path}: {cleanup_error}")
+        
     except Exception as e:
         logger.error(f"Background processing failed for {file_path}: {e}")
         logger.error(traceback.format_exc())
+        
+        # Clean up file on error
+        if cleanup_path and Path(cleanup_path).exists():
+            try:
+                Path(cleanup_path).unlink()
+                logger.info(f"Cleaned up file after processing error: {cleanup_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup file after error {cleanup_path}: {cleanup_error}")
 
 # Error handlers
 @app.exception_handler(HTTPException)
@@ -440,26 +575,75 @@ async def general_exception_handler(request, exc):
         }
     )
 
-# Root endpoint
+# Root endpoint - Enhanced with parameterized options
 @app.get("/", tags=["Root"])
-async def root():
-    """API root endpoint."""
-    return {
+async def root(
+    show_endpoints: bool = Query(True, description="Include endpoint information"),
+    show_config: bool = Query(False, description="Include configuration details"),
+    format_type: str = Query("detailed", enum=["minimal", "detailed", "debug"], description="Response detail level")
+):
+    """API root endpoint with configurable response details."""
+    
+    base_response = {
         "message": "Document Retrieval API",
         "version": "1.0.0",
         "status": "running",
-        "timestamp": datetime.now().isoformat(),
-        "endpoints": {
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Minimal response
+    if format_type == "minimal":
+        return base_response
+    
+    # Add endpoints information if requested
+    if show_endpoints:
+        base_response["endpoints"] = {
             "health": "/health",
             "document_simple_search": "/search/simple",
-            "document_enhanced_search": "/search/enhanced",
+            "document_enhanced_search": "/search/enhanced", 
             "document_search_parameterized": "/search",
             "process_localdocument": "/documents/process",
-            "upload_document": "/documents/upload",
+            "upload_binary_document": "/documents/upload",
+            "upload_multipart_document": "/documents/upload-multipart",
             "database_stats": "/database/stats",
+            "similar_documents": "/documents/similar",
             "docs": "/docs"
         }
-    }
+    
+    # Add configuration details if requested
+    if show_config:
+        try:
+            config_info = {
+                "retriever_initialized": retriever is not None,
+                "database_available": retriever and retriever.vector_db is not None,
+                "cors_enabled": True,
+                "background_tasks_enabled": True
+            }
+            
+            if retriever and hasattr(retriever, 'config'):
+                config_info["retriever_config"] = {
+                    "max_results": getattr(retriever.config, 'max_results', 'unknown'),
+                    "min_similarity_threshold": getattr(retriever.config, 'min_similarity_threshold', 'unknown'),
+                    "search_type": str(getattr(retriever.config, 'search_type', 'unknown')),
+                    "enable_query_enhancement": getattr(retriever.config, 'enable_query_enhancement', 'unknown')
+                }
+            
+            base_response["configuration"] = config_info
+            
+        except Exception as e:
+            base_response["configuration"] = {"error": f"Could not retrieve config: {str(e)}"}
+    
+    # Add debug information if requested
+    if format_type == "debug":
+        import sys
+        base_response["debug_info"] = {
+            "python_version": sys.version,
+            "fastapi_version": "unknown",  # Would need to import fastapi to get version
+            "working_directory": str(Path.cwd()),
+            "environment": "development" if __debug__ else "production"
+        }
+    
+    return base_response
 
 # Configuration for running
 if __name__ == "__main__":
