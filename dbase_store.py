@@ -47,8 +47,8 @@ class DatabaseConfig:
     """Configuration for database connections."""
     host: str = os.getenv("POSTGRES_HOST", "localhost")
     port: int = int(os.getenv("POSTGRES_PORT", "5432"))
-    database: str = os.getenv("POSTGRES_DATABASE", "vectordb")
-    username: str = os.getenv("POSTGRES_USERNAME", "postgres")
+    database: str = os.getenv("POSTGRES_DATABASE", "")
+    username: str = os.getenv("POSTGRES_USERNAME", "")
     password: str = os.getenv("POSTGRES_PASSWORD", "")
     
     # Connection pool settings

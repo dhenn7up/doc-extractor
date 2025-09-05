@@ -1,74 +1,73 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-import os
-import tempfile
-import shutil
-from pathlib import Path
+"""
+FastAPI Application for Document Retrieval from Vector Database
+"""
+
 import asyncio
 import logging
+import traceback
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+from pathlib import Path
 
-# Import your modules
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
+import uvicorn
+
+# Import your existing modules
+from doc_retrieval import (
+    DocumentRetriever, 
+    RetrievalConfig, 
+    SearchType,
+    simple_search,
+    enhanced_search
+)
+from dbase_store import DatabaseConfig
 from doc_process import process_document
-from doc_retrieval import DocumentRetriever, RetrievalConfig, enhanced_search
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = FastAPI(
-    title="Document Processing and Retrieval API",
-    description="Upload documents and query them using Azure OpenAI",
-    version="1.0.0"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
-# Pydantic models for request/response
-class QueryRequest(BaseModel):
-    query: str
-    max_results: int = 5
-    min_similarity: float = 0.6
-    source_filter: Optional[str] = None
-    enable_enhancement: bool = True
-    enable_context: bool = True
-
-class QueryResponse(BaseModel):
-    query: str
-    enhanced_query: Optional[str]
-    total_results: int
-    search_time: float
-    results: list
-
-class ProcessResponse(BaseModel):
-    status: str
-    message: str
-    details: Optional[Dict[str, Any]] = None
+logger = logging.getLogger(__name__)
 
 # Global retriever instance
 retriever: Optional[DocumentRetriever] = None
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the document retriever on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan - startup and shutdown."""
     global retriever
+    
+    # Startup
+    logger.info("Starting up Document Retrieval API...")
     try:
+        # Initialize retriever with default config
         config = RetrievalConfig(
-            max_results=10,
-            min_similarity_threshold=0.5,
+            max_results=20,
+            min_similarity_threshold=0.3,
+            search_type=SearchType.SEMANTIC,
             enable_query_enhancement=True,
-            llm_model="azure_openai/gpt-4"  # Using Azure OpenAI
+            llm_model="azure_openai/gpt-4",
+            context_window_size=2
         )
+        
         retriever = DocumentRetriever(config)
         await retriever.initialize()
         logger.info("Document retriever initialized successfully")
+        
     except Exception as e:
         logger.error(f"Failed to initialize retriever: {e}")
-        raise e
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up resources on shutdown."""
-    global retriever
+        logger.error(traceback.format_exc())
+        raise
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down Document Retrieval API...")
     if retriever:
         try:
             await retriever.close()
@@ -76,189 +75,398 @@ async def shutdown_event():
         except Exception as e:
             logger.error(f"Error closing retriever: {e}")
 
-@app.post("/upload", response_model=ProcessResponse)
-async def upload_document(
-    file: UploadFile = File(...),
-    description: str = Form(None)
-):
-    """
-    Upload and process a document.
+# Initialize FastAPI app
+app = FastAPI(
+    title="Document Extractor API",
+    description="API for retrieving documents from vector database using semantic search",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure this properly in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Pydantic models for request/response
+class SearchRequest(BaseModel):
+    """Request model for document search."""
+    query: str = Field(..., min_length=1, max_length=1000, description="Search query")
+    max_results: Optional[int] = Field(10, ge=1, le=100, description="Maximum number of results to return")
+    min_similarity_threshold: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Minimum similarity threshold")
+    source_filter: Optional[str] = Field(None, description="Filter by document source")
+    enable_query_enhancement: Optional[bool] = Field(True, description="Enable LLM-based query enhancement")
+    enable_context: Optional[bool] = Field(True, description="Include context chunks around matches")
+    full_content: Optional[bool] = Field(False, description="Return full content instead of preview")
     
-    Args:
-        file: The document file to upload
-        description: Optional description for the document
-    
-    Returns:
-        Processing results and statistics
-    """
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
-    
-    # Check file type (basic validation)
-    allowed_extensions = {'.pdf', '.docx', '.doc', '.txt', '.md'}
-    file_extension = Path(file.filename).suffix.lower()
-    
-    if file_extension not in allowed_extensions:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unsupported file type: {file_extension}. Allowed: {allowed_extensions}"
-        )
-    
-    # Create temporary file
-    temp_dir = tempfile.mkdtemp()
-    temp_file_path = None
-    
+    @validator('query')
+    def validate_query(cls, v):
+        if not v.strip():
+            raise ValueError('Query cannot be empty or whitespace only')
+        return v.strip()
+
+class SimpleSearchRequest(BaseModel):
+    """Simplified request model for basic search."""
+    query: str = Field(..., min_length=1, max_length=1000, description="Search query")
+    max_results: Optional[int] = Field(5, ge=1, le=50, description="Maximum number of results to return")
+    min_similarity_threshold: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Minimum similarity threshold")
+
+class DocumentProcessRequest(BaseModel):
+    """Request model for document processing."""
+    file_path: str = Field(..., description="Path to the document file to process")
+
+class SearchResponse(BaseModel):
+    """Response model for search results."""
+    success: bool
+    query: str
+    enhanced_query: Optional[str]
+    total_results: int
+    search_time: float
+    search_type: str
+    results: List[Dict[str, Any]]
+    message: Optional[str] = None
+
+class DocumentProcessResponse(BaseModel):
+    """Response model for document processing."""
+    success: bool
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+class HealthResponse(BaseModel):
+    """Response model for health check."""
+    status: str
+    timestamp: str
+    database_status: Optional[Dict[str, Any]] = None
+
+# Health check endpoint
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
+async def health_check():
+    """Check API and database health."""
     try:
-        # Save uploaded file to temporary location
-        temp_file_path = os.path.join(temp_dir, file.filename)
+        health_data = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat()
+        }
         
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        if retriever and retriever.vector_db:
+            db_health = await retriever.vector_db.health_check()
+            health_data["database_status"] = db_health
         
-        logger.info(f"Processing file: {file.filename}")
-        
-        # Process the document
-        result = await process_document(temp_file_path)
-        
-        return ProcessResponse(
-            status="success",
-            message=f"Document '{file.filename}' processed successfully",
-            details=result
-        )
+        return HealthResponse(**health_data)
         
     except Exception as e:
-        logger.error(f"Error processing file {file.filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
-    
-    finally:
-        # Clean up temporary files
-        try:
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-            if os.path.exists(temp_dir):
-                os.rmdir(temp_dir)
-        except Exception as e:
-            logger.warning(f"Failed to clean up temporary files: {e}")
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
-@app.post("/query", response_model=QueryResponse)
-async def query_documents(request: QueryRequest):
+# Simple search endpoint
+@app.post("/search/simple", response_model=SearchResponse, tags=["Search"])
+async def simple_search_endpoint(request: SimpleSearchRequest):
     """
-    Query processed documents using semantic search.
-    
-    Args:
-        request: Query parameters including search text and options
-        
-    Returns:
-        Search results with similarity scores and metadata
+    Simple document search with basic parameters.
+    Fast search without query enhancement or context.
     """
-    global retriever
-    
-    if not retriever:
-        raise HTTPException(status_code=500, detail="Document retriever not initialized")
-    
-    if not request.query.strip():
-        raise HTTPException(status_code=400, detail="Query cannot be empty")
-    
     try:
-        logger.info(f"Processing query: {request.query}")
+        logger.info(f"Simple search request: {request.query}")
         
-        # Perform enhanced search using the retriever
+        # Perform simple search
+        results = await simple_search(
+            query=request.query,
+            max_results=request.max_results,
+            min_similarity=request.min_similarity_threshold
+        )
+        
+        response_data = results.to_dict(full_content=False, preview_chars=300)
+        response_data["success"] = True
+        response_data["message"] = f"Found {results.total_results} relevant documents"
+        
+        logger.info(f"Simple search completed: {results.total_results} results in {results.search_time:.3f}s")
+        return SearchResponse(**response_data)
+        
+    except Exception as e:
+        logger.error(f"Simple search failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+# Enhanced search endpoint
+@app.post("/search/enhanced", response_model=SearchResponse, tags=["Search"])
+async def enhanced_search_endpoint(request: SearchRequest):
+    """
+    Enhanced document search with full features including query enhancement and context.
+    """
+    try:
+        logger.info(f"Enhanced search request: {request.query}")
+        
+        # Perform enhanced search
         results = await enhanced_search(
             query=request.query,
             source_filter=request.source_filter,
             max_results=request.max_results,
-            min_similarity=request.min_similarity,
+            min_similarity=request.min_similarity_threshold,
             enable_context=request.enable_context,
-            enable_enhancement=request.enable_enhancement
+            enable_enhancement=request.enable_query_enhancement
         )
         
-        # Convert to response format
-        response = QueryResponse(
-            query=results.query,
-            enhanced_query=results.enhanced_query,
-            total_results=results.total_results,
-            search_time=results.search_time,
-            results=[r.to_dict(full_content=False, preview_chars=500) for r in results.results]
+        response_data = results.to_dict(
+            full_content=request.full_content, 
+            preview_chars=500 if not request.full_content else None
         )
+        response_data["success"] = True
+        response_data["message"] = f"Found {results.total_results} relevant documents"
         
-        logger.info(f"Query completed: {results.total_results} results in {results.search_time:.2f}s")
-        return response
+        logger.info(f"Enhanced search completed: {results.total_results} results in {results.search_time:.3f}s")
+        return SearchResponse(**response_data)
         
     except Exception as e:
-        logger.error(f"Query failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+        logger.error(f"Enhanced search failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-@app.get("/query/{query_text}")
-async def quick_query(
-    query_text: str,
-    max_results: int = 5,
-    min_similarity: float = 0.6
+# Custom search endpoint with query parameters
+@app.get("/search", response_model=SearchResponse, tags=["Search"])
+async def search_with_params(
+    query: str = Query(..., description="Search query"),
+    max_results: int = Query(10, ge=1, le=100, description="Maximum number of results"),
+    min_similarity: float = Query(0.5, ge=0.0, le=1.0, description="Minimum similarity threshold"),
+    source_filter: Optional[str] = Query(None, description="Filter by document source"),
+    enable_enhancement: bool = Query(True, description="Enable query enhancement"),
+    enable_context: bool = Query(True, description="Include context chunks"),
+    full_content: bool = Query(False, description="Return full content")
 ):
     """
-    Quick query endpoint using GET method.
-    
-    Args:
-        query_text: The search query
-        max_results: Maximum number of results to return
-        min_similarity: Minimum similarity threshold
-        
-    Returns:
-        Search results
+    Search documents using query parameters.
+    Convenient for GET requests and testing.
     """
-    request = QueryRequest(
-        query=query_text,
-        max_results=max_results,
-        min_similarity=min_similarity
-    )
-    return await query_documents(request)
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    global retriever
-    
-    status = {
-        "status": "healthy",
-        "retriever_initialized": retriever is not None,
-        "message": "API is running"
-    }
-    
-    if retriever:
-        try:
-            # Test database connection
-            db_health = await retriever.vector_db.health_check()
-            status["database"] = db_health
-        except Exception as e:
-            status["database"] = {"status": "error", "message": str(e)}
-            status["status"] = "degraded"
-    
-    return status
-
-@app.get("/stats")
-async def get_database_stats():
-    """Get database statistics."""
-    global retriever
-    
-    if not retriever:
-        raise HTTPException(status_code=500, detail="Retriever not initialized")
-    
     try:
-        stats = await retriever.vector_db.get_stats()
-        return stats
+        logger.info(f"GET search request: {query}")
+        
+        # Convert to SearchRequest model for validation
+        search_request = SearchRequest(
+            query=query,
+            max_results=max_results,
+            min_similarity_threshold=min_similarity,
+            source_filter=source_filter,
+            enable_query_enhancement=enable_enhancement,
+            enable_context=enable_context,
+            full_content=full_content
+        )
+        
+        # Use the enhanced search endpoint
+        return await enhanced_search_endpoint(search_request)
+        
     except Exception as e:
+        logger.error(f"GET search failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid search parameters: {str(e)}")
+
+# Document processing endpoint
+@app.post("/documents/process", response_model=DocumentProcessResponse, tags=["Documents"])
+async def process_document_endpoint(
+    request: DocumentProcessRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Process and store a document in the vector database.
+    This runs as a background task for large files.
+    """
+    try:
+        # Validate file path
+        file_path = Path(request.file_path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+        
+        if not file_path.is_file():
+            raise HTTPException(status_code=400, detail=f"Path is not a file: {request.file_path}")
+        
+        logger.info(f"Processing document: {request.file_path}")
+        
+        # Add processing task to background
+        background_tasks.add_task(process_document_async, str(file_path.absolute()))
+        
+        return DocumentProcessResponse(
+            success=True,
+            message=f"Document processing started for: {file_path.name}",
+            details={"file_path": str(file_path.absolute()), "status": "processing"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document processing request failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start processing: {str(e)}")
+
+# Upload and process document endpoint
+@app.post("/documents/upload", response_model=DocumentProcessResponse, tags=["Documents"])
+async def upload_and_process_document(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Upload a document file and process it into the vector database.
+    """
+    try:
+        # Create uploads directory if it doesn't exist
+        upload_dir = Path("uploads")
+        upload_dir.mkdir(exist_ok=True)
+        
+        # Save uploaded file
+        file_path = upload_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        logger.info(f"Uploaded file saved: {file_path}")
+        
+        # Add processing task to background
+        if background_tasks:
+            background_tasks.add_task(process_document_async, str(file_path.absolute()))
+            
+            return DocumentProcessResponse(
+                success=True,
+                message=f"File uploaded and processing started: {file.filename}",
+                details={"file_path": str(file_path.absolute()), "status": "processing"}
+            )
+        else:
+            # Process immediately (blocking)
+            result = await process_document(str(file_path.absolute()))
+            
+            return DocumentProcessResponse(
+                success=True,
+                message=f"File uploaded and processed successfully: {file.filename}",
+                details=result
+            )
+        
+    except Exception as e:
+        logger.error(f"File upload failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+# Database statistics endpoint
+@app.get("/database/stats", tags=["Database"])
+async def get_database_stats():
+    """Get vector database statistics."""
+    try:
+        if not retriever or not retriever.vector_db:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        stats = await retriever.vector_db.get_stats()
+        return {
+            "success": True,
+            "timestamp": datetime.now().isoformat(),
+            "stats": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get database stats: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
 
-# Run with: uvicorn main:app --reload --host 0.0.0.0 --port 8000
-# Or use the code below if running directly
+# Similar documents endpoint
+@app.get("/documents/{document_id}/similar", tags=["Documents"])
+async def get_similar_documents(
+    document_id: str,
+    limit: int = Query(5, ge=1, le=20, description="Number of similar documents to return")
+):
+    """Find documents similar to a given document."""
+    try:
+        if not retriever:
+            raise HTTPException(status_code=503, detail="Retriever not available")
+        
+        similar_docs = await retriever.get_similar_documents(document_id, limit)
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "total_results": len(similar_docs),
+            "results": [
+                {
+                    "document_id": doc.document_id,
+                    "content": doc.content[:300] + "..." if len(doc.content) > 300 else doc.content,
+                    "similarity_score": round(doc.similarity_score, 4),
+                    "source": doc.source,
+                    "chunk_index": doc.chunk_index,
+                    "metadata": doc.metadata
+                }
+                for doc in similar_docs
+            ]
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to find similar documents: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
+# Background task for document processing
+async def process_document_async(file_path: str):
+    """Process document in background."""
+    try:
+        logger.info(f"Background processing started for: {file_path}")
+        result = await process_document(file_path)
+        logger.info(f"Background processing completed for: {file_path}")
+        logger.info(f"Processing result: {result}")
+    except Exception as e:
+        logger.error(f"Background processing failed for {file_path}: {e}")
+        logger.error(traceback.format_exc())
+
+# Error handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """Handle HTTP exceptions."""
+    logger.warning(f"HTTP {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle general exceptions."""
+    logger.error(f"Unhandled exception: {exc}")
+    logger.error(traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "Internal server error",
+            "detail": str(exc),
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+# Root endpoint
+@app.get("/", tags=["Root"])
+async def root():
+    """API root endpoint."""
+    return {
+        "message": "Document Retrieval API",
+        "version": "1.0.0",
+        "status": "running",
+        "timestamp": datetime.now().isoformat(),
+        "endpoints": {
+            "health": "/health",
+            "document_simple_search": "/search/simple",
+            "document_enhanced_search": "/search/enhanced",
+            "document_search_parameterized": "/search",
+            "process_localdocument": "/documents/process",
+            "upload_document": "/documents/upload",
+            "database_stats": "/database/stats",
+            "docs": "/docs"
+        }
+    }
+
+# Configuration for running
 if __name__ == "__main__":
-    import uvicorn
-    
-    # Run the FastAPI server
     uvicorn.run(
-        app,  # Direct reference to the app instance
+        "api:app",  # Adjust this to match your file name
         host="0.0.0.0",
         port=8000,
-        reload=True,  # Enable auto-reload for development
+        reload=True,
         log_level="info"
     )
