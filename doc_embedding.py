@@ -10,7 +10,7 @@ import numpy as np
 from typing import List, Optional, Union
 from pathlib import Path
 from dotenv import load_dotenv
-from react_agent.utils import load_chat_model
+from utils import load_chat_model
 
 # Load environment variables
 current_file = Path(__file__)

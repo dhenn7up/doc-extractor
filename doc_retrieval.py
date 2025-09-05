@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-from react_agent.utils import load_chat_model
-from react_agent.doc_processing.doc_embedding import EmbeddingGenerator
-from react_agent.doc_processing.dbase_store import VectorDatabase, DatabaseConfig
+from utils import load_chat_model
+from doc_embedding import EmbeddingGenerator
+from dbase_store import VectorDatabase, DatabaseConfig
 
 # Configure logging
 logging.basicConfig(level=logging.ERROR)
@@ -37,7 +37,7 @@ class RetrievalConfig:
     min_similarity_threshold: float = 0.6
     search_type: SearchType = SearchType.SEMANTIC
     enable_query_enhancement: bool = True
-    llm_model: str = "azure_openai/gpt-4"  # Corrected model name
+    llm_model: str = "azure_openai/gpt-4o"  # Corrected model name
     source_filter: Optional[str] = None
     metadata_filters: Dict[str, Any] = field(default_factory=dict)
     context_window_size: int = 3
@@ -110,7 +110,7 @@ class RetrievalResults:
 class QueryEnhancer:
     """Enhances user queries using LLM for better retrieval."""
     
-    def __init__(self, model: str = "azure_openai/gpt-4"):
+    def __init__(self, model: str = "azure_openai/gpt-4o"):
         self.llm = load_chat_model(model)
 
     async def enhance_query(self, query: str) -> str:

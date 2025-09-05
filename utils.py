@@ -10,10 +10,8 @@ from dotenv import load_dotenv
 """Load .env file from project root directory."""
 # Get the current file's directory (src/react_agent/)
 current_file = Path(__file__)
-current_dir = current_file.parent
-    
+project_root = current_file.parent  
 # Navigate up to project root: src/react_agent/ -> src/ -> project_root/
-project_root = current_dir.parent.parent
 env_file = project_root / ".env"
 load_dotenv(env_file)
 

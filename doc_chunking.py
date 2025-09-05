@@ -8,7 +8,7 @@ from enum import Enum
 import asyncio
 import logging
 from pathlib import Path
-from react_agent.utils import load_chat_model
+from utils import load_chat_model
 
 from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,

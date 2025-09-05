@@ -2,7 +2,7 @@ import asyncio
 from typing import Optional
 
 from doc_retrieval import RetrievalConfig, DocumentRetriever
-from react_agent.utils import load_chat_model  # your existing loader
+from utils import load_chat_model  # your existing loader
 
 # -------------------------------
 # Configuration
